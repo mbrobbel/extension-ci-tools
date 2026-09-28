@@ -92,3 +92,39 @@ jobs:
 ```
 
 The shared makefiles provide common targets such as `make debug`, `make test_debug` and `make release`.
+
+## Extensions in a subdirectory
+
+`build.yml`, `_extension_distribution.yml`, and `_extension_code_quality.yml`
+accept `extension_directory`, relative to the extension repository root. The default
+is `.`, preserving the root-level layout. For example, the grouped build workflow
+can build an extension under `integrations/duckdb`:
+
+```yaml
+jobs:
+  extension:
+    uses: duckdb/extension-ci-tools/.github/workflows/build.yml@main
+    with:
+      duckdb_version: <duckdb-version>
+      ci_tools_version: main
+      extension_directory: integrations/duckdb
+      groups: |
+        extension:
+          config: ci/extensions.cmake
+          toolchain: main
+```
+
+The selected directory contains the extension's Makefile and build configuration.
+DuckDB and `extension-ci-tools` are checked out below it. Group configuration paths
+(in this example, `integrations/duckdb/ci/extensions.cmake`) and vcpkg overlay paths
+are relative to that directory. Builds, tests, and quality checks run there;
+build outputs and Rust logs are collected from there as well.
+
+The full repository stays available, including parent sources and Git metadata in
+Linux containers. Compiler caches, prebuilt DuckDB downloads, and staged artifacts
+remain at the repository root. Separate v2 test jobs restore their test binaries
+and extension artifacts into the selected directory's build tree.
+
+When overriding the extension repository, `extension_directory` is relative to
+that checkout. Use the same value in the code-quality workflow. Deployment and
+client-test workflows are unchanged.

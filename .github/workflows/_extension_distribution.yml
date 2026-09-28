@@ -21,6 +21,11 @@ on:
       VCPKG_CACHING_AWS_DEFAULT_REGION:
         required: false
     inputs:
+      extension_directory:
+        description: Extension directory relative to the repository root
+        required: false
+        type: string
+        default: '.'
       # The name with which the extension will be built
       extension_name:
         required: true
@@ -185,7 +190,7 @@ on:
         required: false
         type: string
         default: ""
-      # Override vcpkg overlay ports directory (relative to repo root, mounted at /duckdb_build_dir in Docker)
+      # Override vcpkg overlay ports directory (relative to the extension directory)
       vcpkg_overlay_ports:
         required: false
         type: string
@@ -207,6 +212,7 @@ on:
         default: '13'
 
 env:
+  CI_EXTENSION_DIRECTORY: ${{ inputs.extension_directory || '.' }}
   VCPKG_BINARY_SOURCES: ${{inputs.vcpkg_binary_sources == '' && 'clear;http,https://vcpkg-cache.duckdb.org,read' || inputs.vcpkg_binary_sources }}
   USE_MERGED_VCPKG_MANIFEST: ${{ inputs.use_merged_vcpkg_manifest }}
   USE_DEFAULT_RUNNERS: ${{ inputs.runners == '{}' }}
@@ -317,7 +323,7 @@ jobs:
       - name: Checkout / Extension CI tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
           fetch-depth: 0
@@ -326,7 +332,7 @@ jobs:
         if: ${{ inputs.set_caller_as_duckdb }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: duckdb
+          path: ${{ inputs.extension_directory || '.' }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
@@ -344,6 +350,7 @@ jobs:
       # remain usable inside the bind-mounted Docker workspace.
       - name: Checkout / Prepare sources
         id: prepare_sources
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py checkout
 
       - name: Setup / Ccache
@@ -360,16 +367,20 @@ jobs:
           save: ${{ inputs.save_cache }}
 
       - name: Setup
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
 
       - name: Build
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py build
 
       - name: Test
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py test
 
       - name: Upload / Prepare artifacts
         id: artifacts
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py upload
 
       - name: Upload
@@ -399,8 +410,8 @@ jobs:
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
       VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_target_triplet }}
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
-      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/extension-ci-tools/vcpkg_ports
-      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/extension-ci-tools/toolchains
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/${{ inputs.extension_directory || '.' }}/${{ inputs.vcpkg_overlay_ports }}
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/${{ inputs.extension_directory || '.' }}/${{ inputs.vcpkg_overlay_triplets }}
       USE_MERGED_VCPKG_MANIFEST: ${{ inputs.use_merged_vcpkg_manifest }}
       AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_CACHING_AWS_SECRET_ACCESS_KEY }}
@@ -427,7 +438,7 @@ jobs:
       - name: Checkout / Extension CI tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
@@ -440,12 +451,13 @@ jobs:
         if: ${{ inputs.set_caller_as_duckdb }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: duckdb
+          path: ${{ inputs.extension_directory || '.' }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
       - name: Checkout / Prepare sources
         id: prepare_sources
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py checkout
 
       - name: Setup / Go
@@ -468,16 +480,20 @@ jobs:
           save: ${{ inputs.save_cache }}
 
       - name: Setup
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
 
       - name: Build
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py build
 
       - name: Test
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py test
 
       - name: Upload / Prepare artifacts
         id: artifacts
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py upload
 
       - name: Upload
@@ -506,8 +522,8 @@ jobs:
     env:
       VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_target_triplet }}
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
-      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/extension-ci-tools/vcpkg_ports
-      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/extension-ci-tools/toolchains
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/${{ inputs.extension_directory || '.' }}/${{ inputs.vcpkg_overlay_ports }}
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/${{ inputs.extension_directory || '.' }}/${{ inputs.vcpkg_overlay_triplets }}
       USE_MERGED_VCPKG_MANIFEST: ${{ inputs.use_merged_vcpkg_manifest }}
       AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_CACHING_AWS_SECRET_ACCESS_KEY }}
@@ -540,7 +556,7 @@ jobs:
       - name: Checkout / Extension CI tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
@@ -553,12 +569,13 @@ jobs:
         if: ${{ inputs.set_caller_as_duckdb }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: duckdb
+          path: ${{ inputs.extension_directory || '.' }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
       - name: Checkout / Prepare sources
         id: prepare_sources
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py checkout
 
       - name: Setup / Rust
@@ -613,16 +630,20 @@ jobs:
           vcpkgDirectory: ${{ env.VCPKG_WINDOWS_ROOT }}
 
       - name: Setup
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py setup
 
       - name: Build
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py build
 
       - name: Test
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py test
 
       - name: Upload / Prepare artifacts
         id: artifacts
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py upload
 
       - name: Upload
@@ -653,8 +674,8 @@ jobs:
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
       USE_MERGED_VCPKG_MANIFEST: ${{ inputs.use_merged_vcpkg_manifest }}
-      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/extension-ci-tools/vcpkg_ports
-      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/extension-ci-tools/toolchains
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/${{ inputs.extension_directory || '.' }}/${{ inputs.vcpkg_overlay_ports }}
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/${{ inputs.extension_directory || '.' }}/${{ inputs.vcpkg_overlay_triplets }}
       AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_CACHING_AWS_SECRET_ACCESS_KEY }}
       AWS_ENDPOINT_URL: ${{ secrets.VCPKG_CACHING_AWS_ENDPOINT_URL }}
@@ -677,7 +698,7 @@ jobs:
       - name: Checkout / Extension CI tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
@@ -690,12 +711,13 @@ jobs:
         if: ${{ inputs.set_caller_as_duckdb }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: duckdb
+          path: ${{ inputs.extension_directory || '.' }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
       - name: Checkout / Prepare sources
         id: prepare_sources
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py checkout
 
       - name: Setup / Emscripten
@@ -729,16 +751,20 @@ jobs:
           save: ${{ inputs.save_cache }}
 
       - name: Setup
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
 
       - name: Build
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py build
 
       - name: Test
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py test
 
       - name: Upload / Prepare artifacts
         id: artifacts
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py upload
 
       - name: Upload

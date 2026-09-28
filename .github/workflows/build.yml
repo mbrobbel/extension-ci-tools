@@ -3,6 +3,11 @@ name: Build
 on:
   workflow_call:
     inputs:
+      extension_directory:
+        description: Extension directory relative to the repository root
+        required: false
+        type: string
+        default: '.'
       duckdb_version:
         description: DuckDB version to build
         required: true
@@ -110,6 +115,8 @@ permissions:
   packages: read
 
 env:
+  CI_EXTENSION_DIRECTORY: ${{ inputs.extension_directory || '.' }}
+  CI_DUCKDB_GIT_REPOSITORY: ${{ inputs.duckdb_repository != '' && format('https://github.com/{0}.git', inputs.duckdb_repository) || '' }}
   DUCKDB_COMMIT: ${{ inputs.duckdb_commit }}
   DUCKDB_VERSION: ${{ inputs.duckdb_version }}
   CI_BUILD_TYPE: release
@@ -182,20 +189,22 @@ jobs:
       CI_PREBUILT_DUCKDB_ARTIFACT: ${{ fromJSON(inputs.prebuilt_duckdb)[matrix.duckdb_arch] }}
       CI_PREBUILT_DUCKDB_PATH: ${{ github.workspace }}/.ci/prebuilt-duckdb/${{ matrix.duckdb_arch }}
     steps:
-      - name: Prepare sources
-        uses: duckdb/duckdb-ci/prepare-extension@4922bd0f900126b79b89854ae31f887b82386158 # main
+      - name: Checkout extension repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          extension-repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
-          extension-ref: ${{ inputs.extension_ref }}
-          duckdb-repository: ${{ inputs.duckdb_repository }}
-          duckdb-ref: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
-          duckdb-sha: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
+          repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
+          ref: ${{ inputs.extension_ref }}
+          fetch-depth: 0
+          submodules: recursive
       - name: Checkout extension-ci-tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           repository: ${{ inputs.ci_tools_repository }}
           ref: ${{ inputs.ci_tools_version }}
+      - name: Prepare DuckDB
+        working-directory: ${{ inputs.extension_directory || '.' }}
+        run: python3 extension-ci-tools/scripts/ci_phase.py checkout
       - name: Download prebuilt DuckDB
         if: ${{ env.CI_PREBUILT_DUCKDB_ARTIFACT != '' }}
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
@@ -211,10 +220,12 @@ jobs:
           key: build-${{ matrix.artifact_name }}-${{ inputs.duckdb_version }}
           save: ${{ inputs.save_cache }}
       - name: Configure
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
       - name: Build
         uses: duckdb/duckdb-ci/build-duckdb@4922bd0f900126b79b89854ae31f887b82386158 # main
         with:
+          working-directory: ${{ inputs.extension_directory || '.' }}
           build: python3 extension-ci-tools/scripts/ci_phase.py build
           test: python3 extension-ci-tools/scripts/ci_phase.py test
           vcpkg-commit: ${{ inputs.vcpkg_commit }}
@@ -222,6 +233,7 @@ jobs:
           cache-suffix: ${{ matrix.group_name }}-${{ matrix.container_name || matrix.duckdb_arch }}
       - name: Prepare extension artifact
         id: artifact
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py upload
       - name: Upload extension artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -240,6 +252,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.build_macos) }}
     env:
+      CI_DUCKDB_GIT_REPOSITORY: ${{ format('https://github.com/{0}.git', inputs.duckdb_repository || 'duckdb/duckdb') }}
       CI_PLATFORM: macos
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
       CI_OSX_BUILD_ARCH: ${{ matrix.osx_build_arch }}
@@ -258,18 +271,17 @@ jobs:
       CI_PREBUILT_DUCKDB_ARTIFACT: ${{ fromJSON(inputs.prebuilt_duckdb)[matrix.duckdb_arch] }}
       CI_PREBUILT_DUCKDB_PATH: ${{ github.workspace }}/.ci/prebuilt-duckdb/${{ matrix.duckdb_arch }}
     steps:
-      - name: Prepare sources
-        uses: duckdb/duckdb-ci/prepare-extension@4922bd0f900126b79b89854ae31f887b82386158 # main
+      - name: Checkout extension repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          extension-repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
-          extension-ref: ${{ inputs.extension_ref }}
-          duckdb-repository: ${{ inputs.duckdb_repository != '' && inputs.duckdb_repository || 'duckdb/duckdb' }}
-          duckdb-ref: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
-          duckdb-sha: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
+          repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
+          ref: ${{ inputs.extension_ref }}
+          fetch-depth: 0
+          submodules: recursive
       - name: Checkout extension-ci-tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           repository: ${{ inputs.ci_tools_repository }}
           ref: ${{ inputs.ci_tools_version }}
       - name: Download prebuilt DuckDB
@@ -282,6 +294,9 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
+      - name: Prepare DuckDB
+        working-directory: ${{ inputs.extension_directory || '.' }}
+        run: python3 extension-ci-tools/scripts/ci_phase.py checkout
       - name: Setup Rust
         if: ${{ matrix.toolchain == 'rust' }}
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -294,10 +309,12 @@ jobs:
           key: build-${{ matrix.artifact_name }}-${{ inputs.duckdb_version }}
           save: ${{ inputs.save_cache }}
       - name: Configure
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
       - name: Build
         uses: duckdb/duckdb-ci/build-duckdb@4922bd0f900126b79b89854ae31f887b82386158 # main
         with:
+          working-directory: ${{ inputs.extension_directory || '.' }}
           build: python3 extension-ci-tools/scripts/ci_phase.py build
           test: python3 extension-ci-tools/scripts/ci_phase.py test
           vcpkg-commit: ${{ inputs.vcpkg_commit }}
@@ -305,6 +322,7 @@ jobs:
           cache-suffix: ${{ matrix.group_name }}-${{ matrix.container_name || matrix.duckdb_arch }}
       - name: Prepare extension artifact
         id: artifact
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py upload
       - name: Upload extension artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -323,6 +341,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.build_windows) }}
     env:
+      CI_DUCKDB_GIT_REPOSITORY: ${{ format('https://github.com/{0}.git', inputs.duckdb_repository || 'duckdb/duckdb') }}
       CI_PLATFORM: windows
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
       CI_EXTENSION_NAME: ${{ matrix.artifact_prefix }}
@@ -346,18 +365,17 @@ jobs:
         run: |
           git config --global core.autocrlf false
           git config --global core.eol lf
-      - name: Prepare sources
-        uses: duckdb/duckdb-ci/prepare-extension@4922bd0f900126b79b89854ae31f887b82386158 # main
+      - name: Checkout extension repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          extension-repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
-          extension-ref: ${{ inputs.extension_ref }}
-          duckdb-repository: ${{ inputs.duckdb_repository != '' && inputs.duckdb_repository || 'duckdb/duckdb' }}
-          duckdb-ref: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
-          duckdb-sha: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
+          repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
+          ref: ${{ inputs.extension_ref }}
+          fetch-depth: 0
+          submodules: recursive
       - name: Checkout extension-ci-tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           repository: ${{ inputs.ci_tools_repository }}
           ref: ${{ inputs.ci_tools_version }}
       - name: Download prebuilt DuckDB
@@ -370,6 +388,9 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
+      - name: Prepare DuckDB
+        working-directory: ${{ inputs.extension_directory || '.' }}
+        run: python extension-ci-tools/scripts/ci_phase.py checkout
       - name: Setup Rust
         if: ${{ matrix.toolchain == 'rust' }}
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -407,10 +428,12 @@ jobs:
           vcpkgGitURL: ${{ inputs.vcpkg_url }}
           vcpkgDirectory: ${{ env.VCPKG_WINDOWS_ROOT }}
       - name: Configure
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py setup
       - name: Build
         uses: duckdb/duckdb-ci/build-duckdb@4922bd0f900126b79b89854ae31f887b82386158 # main
         with:
+          working-directory: ${{ inputs.extension_directory || '.' }}
           build: python extension-ci-tools/scripts/ci_phase.py build
           test: python extension-ci-tools/scripts/ci_phase.py test
           vcpkg-commit: ${{ inputs.vcpkg_commit }}
@@ -418,6 +441,7 @@ jobs:
           cache-suffix: ${{ matrix.group_name }}-${{ matrix.container_name || matrix.duckdb_arch }}
       - name: Prepare extension artifact
         id: artifact
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py upload
       - name: Upload extension artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -436,6 +460,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.build_wasm) }}
     env:
+      CI_DUCKDB_GIT_REPOSITORY: ${{ format('https://github.com/{0}.git', inputs.duckdb_repository || 'duckdb/duckdb') }}
       GEN: make
       CI_PLATFORM: wasm
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
@@ -452,24 +477,26 @@ jobs:
       AWS_ENDPOINT_URL: ${{ secrets.VCPKG_CACHING_AWS_ENDPOINT_URL }}
       AWS_DEFAULT_REGION: ${{ secrets.VCPKG_CACHING_AWS_DEFAULT_REGION }}
     steps:
-      - name: Prepare sources
-        uses: duckdb/duckdb-ci/prepare-extension@4922bd0f900126b79b89854ae31f887b82386158 # main
+      - name: Checkout extension repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          extension-repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
-          extension-ref: ${{ inputs.extension_ref }}
-          duckdb-repository: ${{ inputs.duckdb_repository != '' && inputs.duckdb_repository || 'duckdb/duckdb' }}
-          duckdb-ref: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
-          duckdb-sha: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
+          repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
+          ref: ${{ inputs.extension_ref }}
+          fetch-depth: 0
+          submodules: recursive
       - name: Checkout extension-ci-tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           repository: ${{ inputs.ci_tools_repository }}
           ref: ${{ inputs.ci_tools_version }}
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
+      - name: Prepare DuckDB
+        working-directory: ${{ inputs.extension_directory || '.' }}
+        run: python3 extension-ci-tools/scripts/ci_phase.py checkout
       - name: Setup Emscripten
         uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
@@ -488,10 +515,12 @@ jobs:
           key: build-${{ matrix.artifact_name }}-${{ inputs.duckdb_version }}
           save: ${{ inputs.save_cache }}
       - name: Configure
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
       - name: Build
         uses: duckdb/duckdb-ci/build-duckdb@4922bd0f900126b79b89854ae31f887b82386158 # main
         with:
+          working-directory: ${{ inputs.extension_directory || '.' }}
           build: python3 extension-ci-tools/scripts/ci_phase.py build
           test: python3 extension-ci-tools/scripts/ci_phase.py test
           vcpkg-commit: ${{ inputs.vcpkg_commit }}
@@ -499,6 +528,7 @@ jobs:
           cache-suffix: ${{ matrix.group_name }}-${{ matrix.container_name || matrix.duckdb_arch }}
       - name: Prepare extension artifact
         id: artifact
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py upload
       - name: Upload extension artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -522,6 +552,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.test_linux) }}
     env:
+      CI_DUCKDB_GIT_REPOSITORY: ${{ format('https://github.com/{0}.git', inputs.duckdb_repository || 'duckdb/duckdb') }}
       CI_PLATFORM: linux
       CI_LINUX_NATIVE_CONTAINER: true
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
@@ -530,20 +561,22 @@ jobs:
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
       CI_EXTENSION_ARTIFACT_DIR: ${{ github.workspace }}/.ci/repository
     steps:
-      - name: Prepare sources
-        uses: duckdb/duckdb-ci/prepare-extension@4922bd0f900126b79b89854ae31f887b82386158 # main
+      - name: Checkout extension repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          extension-repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
-          extension-ref: ${{ inputs.extension_ref }}
-          duckdb-repository: ${{ inputs.duckdb_repository != '' && inputs.duckdb_repository || 'duckdb/duckdb' }}
-          duckdb-ref: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
-          duckdb-sha: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
+          repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
+          ref: ${{ inputs.extension_ref }}
+          fetch-depth: 0
+          submodules: recursive
       - name: Checkout extension-ci-tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           repository: ${{ inputs.ci_tools_repository }}
           ref: ${{ inputs.ci_tools_version }}
+      - name: Prepare DuckDB
+        working-directory: ${{ inputs.extension_directory || '.' }}
+        run: python3 extension-ci-tools/scripts/ci_phase.py checkout
       - name: Download extension artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -552,6 +585,7 @@ jobs:
           merge-multiple: true
       - name: Test each group
         if: ${{ !inputs.skip_tests && matrix.duckdb_arch != 'linux_arm64' }}
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py test
 
   test_macos:
@@ -564,6 +598,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.test_macos) }}
     env:
+      CI_DUCKDB_GIT_REPOSITORY: ${{ format('https://github.com/{0}.git', inputs.duckdb_repository || 'duckdb/duckdb') }}
       CI_PLATFORM: macos
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
       CI_OSX_BUILD_ARCH: ${{ matrix.osx_build_arch }}
@@ -573,24 +608,26 @@ jobs:
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
       CI_EXTENSION_ARTIFACT_DIR: ${{ github.workspace }}/.ci/repository
     steps:
-      - name: Prepare sources
-        uses: duckdb/duckdb-ci/prepare-extension@4922bd0f900126b79b89854ae31f887b82386158 # main
+      - name: Checkout extension repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          extension-repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
-          extension-ref: ${{ inputs.extension_ref }}
-          duckdb-repository: ${{ inputs.duckdb_repository != '' && inputs.duckdb_repository || 'duckdb/duckdb' }}
-          duckdb-ref: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
-          duckdb-sha: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
+          repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
+          ref: ${{ inputs.extension_ref }}
+          fetch-depth: 0
+          submodules: recursive
       - name: Checkout extension-ci-tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           repository: ${{ inputs.ci_tools_repository }}
           ref: ${{ inputs.ci_tools_version }}
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
+      - name: Prepare DuckDB
+        working-directory: ${{ inputs.extension_directory || '.' }}
+        run: python3 extension-ci-tools/scripts/ci_phase.py checkout
       - name: Install build prerequisites
         run: brew install ninja
       - name: Download extension artifacts
@@ -601,6 +638,7 @@ jobs:
           merge-multiple: true
       - name: Test each group
         if: ${{ !inputs.skip_tests && matrix.osx_build_arch == 'arm64' }}
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python3 extension-ci-tools/scripts/ci_phase.py test
 
   test_windows:
@@ -613,6 +651,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.test_windows) }}
     env:
+      CI_DUCKDB_GIT_REPOSITORY: ${{ format('https://github.com/{0}.git', inputs.duckdb_repository || 'duckdb/duckdb') }}
       CI_PLATFORM: windows
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
       CI_EXTENSION_NAME: all-extensions
@@ -627,24 +666,26 @@ jobs:
         run: |
           git config --global core.autocrlf false
           git config --global core.eol lf
-      - name: Prepare sources
-        uses: duckdb/duckdb-ci/prepare-extension@4922bd0f900126b79b89854ae31f887b82386158 # main
+      - name: Checkout extension repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          extension-repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
-          extension-ref: ${{ inputs.extension_ref }}
-          duckdb-repository: ${{ inputs.duckdb_repository != '' && inputs.duckdb_repository || 'duckdb/duckdb' }}
-          duckdb-ref: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
-          duckdb-sha: ${{ inputs.duckdb_commit || inputs.duckdb_version }}
+          repository: ${{ inputs.extension_repository != '' && inputs.extension_repository || github.repository }}
+          ref: ${{ inputs.extension_ref }}
+          fetch-depth: 0
+          submodules: recursive
       - name: Checkout extension-ci-tools
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          path: extension-ci-tools
+          path: ${{ inputs.extension_directory || '.' }}/extension-ci-tools
           repository: ${{ inputs.ci_tools_repository }}
           ref: ${{ inputs.ci_tools_version }}
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
+      - name: Prepare DuckDB
+        working-directory: ${{ inputs.extension_directory || '.' }}
+        run: python extension-ci-tools/scripts/ci_phase.py checkout
       - name: Setup Rtools
         if: ${{ matrix.duckdb_arch == 'windows_amd64_mingw' }}
         uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2.12.1
@@ -662,4 +703,5 @@ jobs:
           merge-multiple: true
       - name: Test each group
         if: ${{ !inputs.skip_tests }}
+        working-directory: ${{ inputs.extension_directory || '.' }}
         run: python extension-ci-tools/scripts/ci_phase.py test

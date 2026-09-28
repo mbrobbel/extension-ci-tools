@@ -79,6 +79,10 @@ class PhaseRunner:
         self.platform = self.required("CI_PLATFORM")
         self.architecture = self.required("DUCKDB_PLATFORM")
         self.workspace = Path(self.env.get("GITHUB_WORKSPACE", ".")).resolve()
+        directory = Path(self.value("CI_EXTENSION_DIRECTORY") or ".")
+        self.extension_root = (self.workspace / directory).resolve()
+        if directory.is_absolute() or not self.extension_root.is_relative_to(self.workspace):
+            raise ValueError("CI_EXTENSION_DIRECTORY must be relative to the workspace and stay within it")
 
     def value(self, name: str, default: str = "") -> str:
         return self.env.get(name, default)
@@ -109,7 +113,7 @@ class PhaseRunner:
         print(f"+ {format_command(command)}", flush=True)
         options = {
             "check": True,
-            "cwd": cwd or self.workspace,
+            "cwd": cwd or self.extension_root,
             "env": environment,
             "shell": shell,
         }
@@ -127,7 +131,7 @@ class PhaseRunner:
         completed = subprocess.run(
             command,
             check=True,
-            cwd=cwd or self.workspace,
+            cwd=cwd or self.extension_root,
             env=self.env.copy(),
             stdout=subprocess.PIPE,
             text=True,
@@ -153,7 +157,7 @@ class PhaseRunner:
                 handle.write(f"{value}\n")
 
     def retry_prefix(self) -> list[str]:
-        retry_script = self.workspace / "duckdb" / "scripts" / "ci" / "retry.py"
+        retry_script = self.extension_root / "duckdb" / "scripts" / "ci" / "retry.py"
         return [sys.executable, str(retry_script), "--"] if retry_script.is_file() else []
 
     def run_with_retry(
@@ -164,7 +168,7 @@ class PhaseRunner:
     def checkout(self) -> None:
         duckdb_repository = self.value("CI_DUCKDB_GIT_REPOSITORY")
         duckdb_ref = self.duckdb_ref()
-        duckdb_directory = self.workspace / "duckdb"
+        duckdb_directory = self.extension_root / "duckdb"
         if not duckdb_directory.is_dir():
             self.run(
                 [
@@ -211,7 +215,7 @@ class PhaseRunner:
         for configured_path in paths:
             path = Path(configured_path)
             if not path.is_absolute():
-                path = self.workspace / path
+                path = self.extension_root / path
             if not path.is_file():
                 raise FileNotFoundError(f"extension config does not exist: {path}")
             config_parts.append(path.read_text(encoding="utf-8").rstrip("\n"))
@@ -221,7 +225,7 @@ class PhaseRunner:
         config = "\n\n".join(part for part in config_parts if part)
         if not config:
             return
-        path = self.workspace / "extension_config.cmake"
+        path = self.extension_root / "extension_config.cmake"
         with path.open("a", encoding="utf-8") as handle:
             handle.write(f"\n# Injected Extension Config\n{config}\n")
         print(path.read_text(encoding="utf-8"))
@@ -255,9 +259,11 @@ class PhaseRunner:
                     [
                         "docker",
                         "run",
-                        "--env-file=docker_env.txt",
+                        f"--env-file={self.workspace / 'docker_env.txt'}",
                         "-v",
                         f"{self.workspace}:/duckdb_build_dir",
+                        "--workdir",
+                        self.container_extension_root(),
                         f"duckdb/{self.architecture}",
                         "vcpkg",
                         "install",
@@ -501,13 +507,19 @@ class PhaseRunner:
             "DUCKDB_PREBUILT_EXTENSIONS", ";".join(sorted(extension_names))
         )
 
+    def container_extension_root(self) -> str:
+        relative = self.extension_root.relative_to(self.workspace).as_posix()
+        return "/duckdb_build_dir" if relative == "." else f"/duckdb_build_dir/{relative}"
+
     def docker_arguments(self) -> list[str]:
         return [
             "docker",
             "run",
-            "--env-file=docker_env.txt",
+            f"--env-file={self.workspace / 'docker_env.txt'}",
             "-v",
             f"{self.workspace}:/duckdb_build_dir",
+            "--workdir",
+            self.container_extension_root(),
             "-v",
             f"{self.workspace / '.ccache'}:/ccache_dir",
             f"duckdb/{self.architecture}",
@@ -523,13 +535,13 @@ class PhaseRunner:
             "AWS_DEFAULT_REGION": self.value("AWS_DEFAULT_REGION"),
             "AWS_REQUEST_CHECKSUM_CALCULATION": "when_required",
             "VCPKG_TARGET_TRIPLET": self.value("VCPKG_TARGET_TRIPLET"),
-            "VCPKG_OVERLAY_TRIPLETS": f"/duckdb_build_dir/{self.value('CI_VCPKG_OVERLAY_TRIPLETS')}",
-            "VCPKG_OVERLAY_PORTS": f"/duckdb_build_dir/{self.value('CI_VCPKG_OVERLAY_PORTS')}",
+            "VCPKG_OVERLAY_TRIPLETS": f"{self.container_extension_root()}/{self.value('CI_VCPKG_OVERLAY_TRIPLETS')}",
+            "VCPKG_OVERLAY_PORTS": f"{self.container_extension_root()}/{self.value('CI_VCPKG_OVERLAY_PORTS')}",
             "CUDAARCHS": self.value("CI_CUDA_ARCHS"),
             "VCPKG_CUDA_VERSION": self.value("CI_CUDA_VERSION"),
             "BUILD_SHELL": "1" if self.enabled("CI_BUILD_DUCKDB_SHELL") else "0",
-            "OPENSSL_ROOT_DIR": f"/duckdb_build_dir/build/{self.value('CI_BUILD_TYPE')}/vcpkg_installed/{self.value('VCPKG_TARGET_TRIPLET')}",
-            "OPENSSL_DIR": f"/duckdb_build_dir/build/{self.value('CI_BUILD_TYPE')}/vcpkg_installed/{self.value('VCPKG_TARGET_TRIPLET')}",
+            "OPENSSL_ROOT_DIR": f"{self.container_extension_root()}/build/{self.value('CI_BUILD_TYPE')}/vcpkg_installed/{self.value('VCPKG_TARGET_TRIPLET')}",
+            "OPENSSL_DIR": f"{self.container_extension_root()}/build/{self.value('CI_BUILD_TYPE')}/vcpkg_installed/{self.value('VCPKG_TARGET_TRIPLET')}",
             "OPENSSL_USE_STATIC_LIBS": "true",
             "DUCKDB_VERSION": self.value("DUCKDB_VERSION"),
             "DUCKDB_COMMIT": self.value("DUCKDB_COMMIT"),
@@ -581,7 +593,7 @@ class PhaseRunner:
                 f"cuda_version={self.value('CI_CUDA_VERSION')}",
                 "-t",
                 f"duckdb/{self.architecture}",
-                str(self.workspace / "extension-ci-tools" / "docker" / self.architecture),
+                str(self.extension_root / "extension-ci-tools" / "docker" / self.architecture),
             ]
         )
         self.create_docker_environment()
@@ -704,7 +716,7 @@ class PhaseRunner:
     def print_rust_logs(self) -> None:
         if not self.enabled("CI_RUST_LOGS") or not self.enabled("CI_HAS_RUST"):
             return
-        pattern = self.workspace / "build" / self.required("CI_BUILD_TYPE") / "rust" / "src" / "**" / "*build-*.log"
+        pattern = self.extension_root / "build" / self.required("CI_BUILD_TYPE") / "rust" / "src" / "**" / "*build-*.log"
         logs = sorted(glob.glob(str(pattern), recursive=True))
         if not logs:
             print(f"No Rust build logs found under {pattern.parent}")
@@ -718,7 +730,7 @@ class PhaseRunner:
         path = self.artifact_path()
         matches = sorted(
             Path(match)
-            for match in glob.glob(str(self.workspace / path), recursive=True)
+            for match in glob.glob(str(self.extension_root / path), recursive=True)
         )
         if not matches:
             raise FileNotFoundError(f"no artifact matched {path}")
@@ -732,7 +744,7 @@ class PhaseRunner:
             shutil.rmtree(staging)
         staging.mkdir(parents=True)
 
-        build_base = self.workspace / "build" / (
+        build_base = self.extension_root / "build" / (
             self.architecture if self.platform == "wasm" else self.required("CI_BUILD_TYPE")
         )
         source_root = (
@@ -764,7 +776,7 @@ class PhaseRunner:
 
     def _bundle_test_support(self, archive: Path) -> None:
         build_type = self.required("CI_BUILD_TYPE")
-        build_dir = self.workspace / "build" / build_type
+        build_dir = self.extension_root / "build" / build_type
         if not build_dir.is_dir():
             raise FileNotFoundError(f"build directory does not exist: {build_dir}")
 
@@ -807,7 +819,7 @@ class PhaseRunner:
             raise FileNotFoundError(f"no test-support archives found below {repository_root}")
 
         build_type = self.required("CI_BUILD_TYPE")
-        build_root = self.workspace / "build"
+        build_root = self.extension_root / "build"
         build_dir = build_root / build_type
         for archive in archives:
             if build_dir.exists():
