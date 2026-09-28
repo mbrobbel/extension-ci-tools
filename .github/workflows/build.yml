@@ -141,7 +141,7 @@ jobs:
     steps:
       - name: Compute matrix
         id: matrix
-        uses: duckdb/duckdb-ci/matrix@4922bd0f900126b79b89854ae31f887b82386158 # main
+        uses: duckdb/duckdb-ci/matrix@c620d04b2afdb55503dceda45f14445f0ca03fec # main
         with:
           exclude_archs: ${{ inputs.exclude_archs }}
           opt_in_archs: ${{ inputs.opt_in_archs }}
