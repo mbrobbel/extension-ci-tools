@@ -240,9 +240,9 @@ jobs:
         if: ${{ env.CI_HAS_RUST == 'true' && matrix.toolchain != 'rust' }}
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       # Match Sirius's Makefile while probing through the extension template.
-      - name: Configure Sirius host and linker
+      - name: Configure Sirius host exports
         if: ${{ env.CI_CUDA_VERSION != '' }}
-        run: echo 'EXT_FLAGS=-DDUCKDB_LINKER=bfd -DEXPORT_DYNAMIC_SYMBOLS=ON' >> "$GITHUB_ENV"
+        run: echo 'EXT_FLAGS=-DEXPORT_DYNAMIC_SYMBOLS=ON' >> "$GITHUB_ENV"
       - name: Configure
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
       - name: Build
