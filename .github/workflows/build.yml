@@ -178,7 +178,7 @@ jobs:
       CI_ARTIFACT_NAME: ${{ matrix.artifact_name }}
       CI_EXTENSION_CONFIG_PATHS: ${{ toJSON(matrix.extension_config_paths) }}
       CI_EXTRA_TOOLCHAINS: ${{ format('{0};{1}', matrix.toolchain, matrix.extra_toolchains) }}
-      CI_HAS_RUST: ${{ matrix.toolchain == 'rust' }}
+      CI_HAS_RUST: ${{ matrix.toolchain == 'rust' || contains(format(';{0};', matrix.extra_toolchains), ';rust;') }}
       VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_target_triplet }}
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
       AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
@@ -220,6 +220,9 @@ jobs:
             build-${{ matrix.artifact_name }}-
             ccache-build-${{ matrix.artifact_name }}-
           save: ${{ inputs.save_cache }}
+      - name: Setup extra Rust toolchain
+        if: ${{ env.CI_HAS_RUST == 'true' && matrix.toolchain != 'rust' }}
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       - name: Configure
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
       - name: Build
