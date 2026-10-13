@@ -539,6 +539,61 @@ class CIPhaseTest(unittest.TestCase):
             self.assertEqual(runner.commands[2][0], ["make", "test_release"])
             self.assertNotIn("docker", str(runner.commands))
 
+    def test_native_cuda_settings_reach_configure_build_and_test(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for architecture in ("linux_amd64", "linux_arm64"):
+                for version in ("12", "13"):
+                    with self.subTest(architecture=architecture, version=version):
+                        env = self.environment(directory, architecture=architecture)
+                        env.update({
+                            "CI_LINUX_NATIVE_CONTAINER": "true",
+                            "CI_CUDA_VERSION": version,
+                            "CI_CUDA_ARCHS": "80-real;90a-real",
+                        })
+                        runner = RecordingRunner(env)
+                        runner.setup_linux()
+                        runner.build_linux()
+                        runner.test()
+                        self.assertEqual(len(runner.commands), 3 if architecture == "linux_amd64" else 2)
+                        self.assertEqual(runner.commands[0][0], ["make", "configure_ci"])
+                        self.assertEqual(runner.commands[1][0][-2:], ["make", "release"])
+                        if architecture == "linux_amd64":
+                            self.assertEqual(runner.commands[2][0], ["make", "test_release"])
+                        for _, options in runner.commands:
+                            forwarded = options["extra_env"]
+                            self.assertEqual(forwarded["VCPKG_CUDA_VERSION"], version)
+                            self.assertEqual(forwarded["CUDAARCHS"], env["CI_CUDA_ARCHS"])
+                            self.assertEqual(forwarded["VCPKG_CUDA_ARCHITECTURES"], env["CI_CUDA_ARCHS"])
+
+    def test_native_cpu_build_does_not_add_cuda_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = self.environment(directory)
+            env["CI_LINUX_NATIVE_CONTAINER"] = "true"
+            forwarded = RecordingRunner(env).build_environment()
+            self.assertNotIn("VCPKG_CUDA_VERSION", forwarded)
+            self.assertNotIn("CUDAARCHS", forwarded)
+            self.assertNotIn("VCPKG_CUDA_ARCHITECTURES", forwarded)
+
+    def test_unspecified_cuda_architectures_keep_toolchain_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = self.environment(directory)
+            env.update({"CI_LINUX_NATIVE_CONTAINER": "true", "CI_CUDA_VERSION": "12"})
+            forwarded = RecordingRunner(env).build_environment()
+            self.assertEqual(forwarded["VCPKG_CUDA_VERSION"], "12")
+            self.assertNotIn("CUDAARCHS", forwarded)
+            self.assertNotIn("VCPKG_CUDA_ARCHITECTURES", forwarded)
+
+    def test_native_cuda_architectures_strip_yaml_block_whitespace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = self.environment(directory)
+            env.update({"CI_LINUX_NATIVE_CONTAINER": "true", "CI_CUDA_VERSION": "13"})
+            for value, expected in ((" 80-real;90a-real\n", "80-real;90a-real"), (" \n", None)):
+                with self.subTest(value=value):
+                    env["CI_CUDA_ARCHS"] = value
+                    forwarded = RecordingRunner(env).build_environment()
+                    self.assertEqual(forwarded.get("CUDAARCHS"), expected)
+                    self.assertEqual(forwarded.get("VCPKG_CUDA_ARCHITECTURES"), expected)
+
     def test_extension_config_paths_are_resolved_from_workspace(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
