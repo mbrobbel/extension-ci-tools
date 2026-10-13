@@ -226,6 +226,10 @@ jobs:
             build-${{ matrix.artifact_name }}-
             ccache-build-${{ matrix.artifact_name }}-
           save: ${{ inputs.save_cache }}
+      # Remove once the pinned CUDA images include OpenSSL's Perl build modules.
+      - name: Install OpenSSL build dependencies
+        if: ${{ env.CI_CUDA_VERSION != '' }}
+        run: dnf install -y perl-IPC-Cmd perl-Time-Piece
       - name: Configure
         run: python3 extension-ci-tools/scripts/ci_phase.py setup
       - name: Build
