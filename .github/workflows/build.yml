@@ -230,6 +230,17 @@ jobs:
       - name: Install OpenSSL build dependencies
         if: ${{ env.CI_CUDA_VERSION != '' }}
         run: dnf install -y perl-IPC-Cmd perl-Time-Piece
+      # Remove once the pinned CUDA images provide Rust-target Clang configs.
+      - name: Preserve native Clang configuration for Rust builds
+        if: ${{ env.CI_CUDA_VERSION != '' && env.CI_HAS_RUST == 'true' }}
+        run: |
+          clang_arch=$(uname -m)
+          for driver in clang clang++; do
+            native="${clang_arch}-redhat-linux-gnu-${driver}.cfg"
+            target="/etc/clang/${clang_arch}-unknown-linux-gnu-${driver}.cfg"
+            test -f "/etc/clang/${native}"
+            if [ ! -e "${target}" ]; then ln -s "${native}" "${target}"; fi
+          done
       - name: Setup extra Rust toolchain
         if: ${{ env.CI_HAS_RUST == 'true' && matrix.toolchain != 'rust' }}
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
