@@ -95,16 +95,11 @@ on:
         required: false
         type: string
         default: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3 # Release 2026.06.24
-      cuda12_archs:
-        description: Semicolon-separated CMake CUDA architectures for the cuda12 toolchain
+      cuda_archs:
+        description: JSON map from CUDA toolchain to semicolon-separated CMake CUDA architectures
         required: false
         type: string
-        default: ""
-      cuda13_archs:
-        description: Semicolon-separated CMake CUDA architectures for the cuda13 toolchain
-        required: false
-        type: string
-        default: ""
+        default: "{}"
       windows_vcpkg_toolchain:
         description: Windows compiler and matching vcpkg toolchain (cl or clang-cl)
         required: false
@@ -183,7 +178,7 @@ jobs:
       CI_PLATFORM: linux
       CI_LINUX_NATIVE_CONTAINER: true
       CI_CUDA_VERSION: ${{ matrix.toolchain == 'cuda12' && '12' || matrix.toolchain == 'cuda13' && '13' || '' }}
-      CI_CUDA_ARCHS: ${{ matrix.toolchain == 'cuda12' && inputs.cuda12_archs || matrix.toolchain == 'cuda13' && inputs.cuda13_archs || '' }}
+      CI_CUDA_ARCHS: ${{ fromJSON(inputs.cuda_archs || '{}')[matrix.toolchain] || '' }}
       DUCKDB_PLATFORM: ${{ matrix.duckdb_arch }}
       CI_EXTENSION_NAME: ${{ matrix.artifact_prefix }}
       CI_ARTIFACT_NAME: ${{ matrix.artifact_name }}
